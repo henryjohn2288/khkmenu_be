@@ -1,0 +1,161 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  passwordHash  String
+  name          String?
+  phone         String?
+  avatarUrl     String?
+  role          UserRole       @default(ADMIN)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  ownedStores   Store[]        @relation("StoreOwner")
+  memberships   StoreMember[]
+  sentInvites   StoreInvite[]  @relation("InviteSender")
+}
+
+model Theme {
+  id              String   @id @default(cuid())
+  slug            String   @unique
+  name            String
+  description     String?
+  previewImageUrl String?
+  config          Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  stores          Store[]
+}
+
+model Store {
+  id             String        @id @default(cuid())
+  ownerId        String?
+  owner          User?         @relation("StoreOwner", fields: [ownerId], references: [id])
+  name           String
+  slug           String        @unique
+  tagline        String?
+  description    String?
+  themeId        String?
+  theme          Theme?        @relation(fields: [themeId], references: [id])
+  themeSettings  Json?
+  phone          String?
+  telegram       String?
+  whatsapp       String?
+  contactEmail   String?
+  facebookUrl    String?
+  instagramUrl   String?
+  websiteUrl     String?
+  location       String?
+  qrCodeImageUrl String?
+  logoUrl        String?
+  heroImageUrl   String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  categories     Category[]
+  products       Product[]
+  members        StoreMember[]
+  invites        StoreInvite[]
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id])
+  name_km   String
+  name_en   String
+  sortOrder Int      @default(0)
+  description String?
+  isVisible   Boolean @default(true)
+  products  Product[]
+
+  @@index([storeId, sortOrder])
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id])
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id])
+  name_km     String
+  name_en     String
+  price       Float
+  description String?
+  unit        String?
+  sku         String?  @unique
+  sortOrder   Int      @default(0)
+  isFeatured  Boolean  @default(false)
+  status      ProductStatus @default(ACTIVE)
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([storeId, status])
+}
+
+model StoreMember {
+  id        String    @id @default(cuid())
+  storeId   String
+  userId    String
+  role      StoreRole @default(EDITOR)
+  createdAt DateTime  @default(now())
+  store     Store     @relation(fields: [storeId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@unique([storeId, userId])
+}
+
+model StoreInvite {
+  id          String       @id @default(cuid())
+  storeId     String
+  store       Store        @relation(fields: [storeId], references: [id])
+  email       String
+  name        String?
+  role        StoreRole    @default(EDITOR)
+  token       String       @unique
+  status      InviteStatus @default(PENDING)
+  invitedById String?
+  invitedBy   User?        @relation("InviteSender", fields: [invitedById], references: [id])
+  expiresAt   DateTime?
+  acceptedAt  DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([storeId, status])
+}
+
+enum ProductStatus {
+  ACTIVE
+  HIDDEN
+  OUT_OF_STOCK
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  SUPPORT
+}
+
+enum StoreRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  CANCELLED
+}
