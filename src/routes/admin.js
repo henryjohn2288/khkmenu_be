@@ -59,7 +59,12 @@ const inviteSelect = {
   storeId: true,
   token: true,
   createdAt: true,
-  expiresAt: true
+  expiresAt: true,
+  store: {
+    select: {
+      name: true
+    }
+  }
 };
 
 router.use(requireAuth);

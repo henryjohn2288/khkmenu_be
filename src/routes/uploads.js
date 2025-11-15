@@ -49,4 +49,56 @@ router.post(
   })
 );
 
+const extractPublicId = (url) => {
+  if (!url || typeof url !== 'string' || !CLOUD_NAME) {
+    return null;
+  }
+  try {
+    const parsed = new URL(url);
+    const expectedHost = `res.cloudinary.com`;
+    if (!parsed.hostname.endsWith(expectedHost)) {
+      return null;
+    }
+    if (!parsed.pathname.includes(`/${CLOUD_NAME}/`)) {
+      return null;
+    }
+    const uploadSegment = parsed.pathname.split('/upload/')[1];
+    if (!uploadSegment) {
+      return null;
+    }
+    const withoutVersion = uploadSegment.replace(/^v\d+\//, '');
+    return withoutVersion.replace(/\.[^.]+$/, '');
+  } catch (err) {
+    return null;
+  }
+};
+
+router.post(
+  '/cleanup',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!CLOUD_NAME || !API_SECRET) {
+      return res.status(500).json({ message: 'Cloudinary is not configured' });
+    }
+
+    const { url } = req.body || {};
+    if (!url) {
+      return res.status(400).json({ message: 'Missing asset url' });
+    }
+
+    const publicId = extractPublicId(url);
+    if (!publicId) {
+      return res.status(400).json({ message: 'Unable to parse asset id' });
+    }
+
+    try {
+      await cloudinary.uploader.destroy(publicId);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('Cloudinary cleanup failed', err);
+      res.status(500).json({ message: 'Failed to remove previous asset' });
+    }
+  })
+);
+
 module.exports = router;

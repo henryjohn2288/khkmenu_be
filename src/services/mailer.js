@@ -5,7 +5,7 @@ const mailFrom = process.env.MAIL_FROM || 'no-reply@example.com';
 
 const resend = apiKey ? new Resend(apiKey) : null;
 
-async function sendInviteEmail({ to, inviteUrl, storeName, role }) {
+async function sendInviteEmail({ to, inviteUrl, storeName = 'your store', role }) {
   if (!resend) {
     console.log(`[Mailer disabled] Invite for ${to}: ${inviteUrl}`);
     return;

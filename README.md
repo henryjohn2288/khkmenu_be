@@ -39,7 +39,20 @@ Seeded demo credentials (after `npm run seed`):
 - `.env` now includes:
   - `DATABASE_URL` (defaults to `file:./dev.db` for SQLite)
   - `JWT_SECRET` (change this in production)
+  - `CLOUDINARY_*` variables for signed uploads
+  - `APP_BASE_URL` so invite links use the correct frontend origin
+  - `RESEND_API_KEY` and `MAIL_FROM` so member invites email users automatically
 - After editing `prisma/schema.prisma`, rerun `npm run db:push` and restart `npm run dev` so the Prisma Client regenerates.
+
+### Email invites
+Member invites are sent via [Resend](https://resend.com/). Provide:
+
+```
+RESEND_API_KEY=your_resend_key
+MAIL_FROM="Digital Menu <no-reply@yourdomain.com>"
+```
+
+If `RESEND_API_KEY` is missing, the server logs invite links to the console instead so you can still copy/paste them manually.
 
 
 

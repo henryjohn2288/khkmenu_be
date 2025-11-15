@@ -6,9 +6,10 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
 
 model User {
   id            String         @id @default(cuid())
@@ -150,7 +151,6 @@ enum StoreRole {
   OWNER
   ADMIN
   EDITOR
-  VIEWER
 }
 
 enum InviteStatus {
