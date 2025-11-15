@@ -11,7 +11,23 @@ const themesRouter = require('./routes/themes');
 
 const app = express();
 
-app.use(cors());
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:4173',
+  'https://digitalmenu-fe.vercel.app',
+];
+
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return cb(null, true);
+      }
+      return cb(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 app.use('/', publicRouter);
