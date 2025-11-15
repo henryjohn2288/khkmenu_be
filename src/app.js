@@ -17,18 +17,18 @@ const allowedOrigins = [
   'https://digitalmenu-fe.vercel.app',
 ];
 
-const corsOptions = {
-  origin(origin, cb) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      return cb(null, true);
-    }
-    return cb(new Error('Not allowed by CORS'));
-  },
-  credentials: true,
-};
-
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return cb(null, true);
+      }
+      return cb(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+    preflightContinue: false,
+  })
+);
 app.use(express.json());
 
 app.use('/', publicRouter);
