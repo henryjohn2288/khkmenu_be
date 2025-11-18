@@ -14,6 +14,7 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:4173',
+  'https://www.khkmenu.com',
   'https://digitalmenu-fe.vercel.app',
 ];
 
