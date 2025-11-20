@@ -93,6 +93,10 @@ router.get(
 router.post(
   '/stores',
   asyncHandler(async (req, res) => {
+    if (req.userRole !== 'SUPER_ADMIN') {
+      return res.status(403).json({ message: 'Only platform administrators can create stores' });
+    }
+
     const payload = pick(req.body, [
       'name',
       'slug',
@@ -172,6 +176,31 @@ router.patch(
     });
 
     res.json({ store });
+  })
+);
+
+router.delete(
+  '/stores/:storeId',
+  asyncHandler(async (req, res) => {
+    const { storeId } = req.params;
+
+    if (req.userRole !== 'SUPER_ADMIN') {
+      const { membership } = await assertStorePermission(req.user, storeId, 'OWNER');
+      const actorRole = getActorStoreRole(req.user, membership);
+      if (actorRole !== 'OWNER') {
+        throw createHttpError(403, 'Only store owners can delete a store');
+      }
+    }
+
+    await prisma.$transaction([
+      prisma.product.deleteMany({ where: { storeId } }),
+      prisma.category.deleteMany({ where: { storeId } }),
+      prisma.storeInvite.deleteMany({ where: { storeId } }),
+      prisma.storeMember.deleteMany({ where: { storeId } }),
+      prisma.store.delete({ where: { id: storeId } })
+    ]);
+
+    res.status(204).end();
   })
 );
 
