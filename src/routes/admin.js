@@ -20,6 +20,8 @@ const { sendInviteEmail } = require('../services/mailer');
 
 const router = Router();
 const PRODUCT_STATUSES = new Set(['ACTIVE', 'HIDDEN', 'OUT_OF_STOCK']);
+const STORE_STATUSES = new Set(['ACTIVE', 'SUSPENDED']);
+const STORE_PLANS = new Set(['STARTER', 'PRO', 'ENTERPRISE']);
 const APP_BASE_URL = process.env.APP_BASE_URL || 'http://localhost:5173';
 
 const storeSummarySelect = {
@@ -30,6 +32,16 @@ const storeSummarySelect = {
   themeId: true,
   logoUrl: true,
   heroImageUrl: true,
+  plan: true,
+  status: true,
+  ownerId: true,
+  owner: {
+    select: {
+      id: true,
+      name: true,
+      email: true
+    }
+  },
   createdAt: true,
   updatedAt: true
 };
@@ -90,6 +102,59 @@ router.get(
   })
 );
 
+router.get(
+  '/customers',
+  asyncHandler(async (req, res) => {
+    if (req.userRole !== 'SUPER_ADMIN') {
+      return res.status(403).json({ message: 'Only platform administrators can view customers' });
+    }
+
+    const owners = await prisma.user.findMany({
+      where: {
+        ownedStores: {
+          some: {}
+        }
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        createdAt: true,
+        ownedStores: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            status: true,
+            plan: true,
+            createdAt: true,
+            updatedAt: true
+          },
+          orderBy: { createdAt: 'desc' }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const customers = owners.map((owner) => {
+      const stores = owner.ownedStores;
+      const status = stores.length && stores.every((store) => store.status === 'SUSPENDED') ? 'SUSPENDED' : 'ACTIVE';
+      return {
+        id: owner.id,
+        name: owner.name,
+        email: owner.email,
+        phone: owner.phone,
+        status,
+        primaryPlan: stores[0]?.plan || 'STARTER',
+        stores
+      };
+    });
+
+    res.json({ customers });
+  })
+);
+
 router.post(
   '/stores',
   asyncHandler(async (req, res) => {
@@ -102,6 +167,8 @@ router.post(
       'slug',
       'tagline',
       'description',
+      'status',
+      'plan',
       'themeId',
       'themeSettings',
       'phone',
@@ -121,19 +188,53 @@ router.post(
       return res.status(400).json({ message: 'Store name and slug are required' });
     }
 
+    if (payload.status) {
+      payload.status = String(payload.status).toUpperCase();
+      if (!STORE_STATUSES.has(payload.status)) {
+        return res.status(400).json({ message: 'Invalid store status' });
+      }
+    }
+
+    if (payload.plan) {
+      payload.plan = String(payload.plan).toUpperCase();
+      if (!STORE_PLANS.has(payload.plan)) {
+        return res.status(400).json({ message: 'Invalid store plan' });
+      }
+    } else {
+      payload.plan = 'STARTER';
+    }
+
+    let ownerUserId = req.userId;
+    if (req.userRole === 'SUPER_ADMIN') {
+      const incomingOwnerId = req.body?.ownerId ? String(req.body.ownerId).trim() : null;
+      const incomingOwnerEmail = req.body?.ownerEmail ? String(req.body.ownerEmail).trim().toLowerCase() : null;
+      if (incomingOwnerId) {
+        const owner = await prisma.user.findUnique({ where: { id: incomingOwnerId } });
+        if (!owner) {
+          return res.status(404).json({ message: 'Owner user not found' });
+        }
+        ownerUserId = owner.id;
+      } else if (incomingOwnerEmail) {
+        const owner = await findOrCreateUserByEmail(incomingOwnerEmail, req.body?.ownerName);
+        ownerUserId = owner.id;
+      }
+    }
+
     const store = await prisma.store.create({
       data: {
         ...payload,
-        ownerId: req.userId
+        ownerId: ownerUserId
       },
       select: storeSummarySelect
     });
 
-    await prisma.storeMember.upsert({
-      where: { storeId_userId: { storeId: store.id, userId: req.userId } },
-      update: { role: 'OWNER' },
-      create: { storeId: store.id, userId: req.userId, role: 'OWNER' }
-    });
+    if (ownerUserId) {
+      await prisma.storeMember.upsert({
+        where: { storeId_userId: { storeId: store.id, userId: ownerUserId } },
+        update: { role: 'OWNER' },
+        create: { storeId: store.id, userId: ownerUserId, role: 'OWNER' }
+      });
+    }
 
     res.status(201).json({ store });
   })
@@ -150,6 +251,7 @@ router.patch(
       'slug',
       'tagline',
       'description',
+      'status',
       'themeId',
       'themeSettings',
       'phone',
@@ -165,15 +267,68 @@ router.patch(
       'heroImageUrl'
     ]);
 
-    if (Object.keys(payload).length === 0) {
+    if (payload.status) {
+      if (req.userRole !== 'SUPER_ADMIN') {
+        return res.status(403).json({ message: 'Only platform administrators can change store status' });
+      }
+      const normalizedStatus = String(payload.status).toUpperCase();
+      if (!STORE_STATUSES.has(normalizedStatus)) {
+        return res.status(400).json({ message: 'Invalid store status' });
+      }
+      payload.status = normalizedStatus;
+    }
+
+    if (payload.plan) {
+      if (req.userRole !== 'SUPER_ADMIN') {
+        return res.status(403).json({ message: 'Only platform administrators can change store plans' });
+      }
+      const normalizedPlan = String(payload.plan).toUpperCase();
+      if (!STORE_PLANS.has(normalizedPlan)) {
+        return res.status(400).json({ message: 'Invalid store plan' });
+      }
+      payload.plan = normalizedPlan;
+    }
+
+    let resolvedOwnerId;
+    const ownerEmail = req.body?.ownerEmail ? String(req.body.ownerEmail).trim().toLowerCase() : null;
+    const ownerIdInput = req.body?.ownerId ? String(req.body.ownerId).trim() : null;
+
+    if (ownerEmail || ownerIdInput) {
+      if (req.userRole !== 'SUPER_ADMIN') {
+        return res.status(403).json({ message: 'Only platform administrators can reassign owners' });
+      }
+      if (ownerIdInput) {
+        const owner = await prisma.user.findUnique({ where: { id: ownerIdInput } });
+        if (!owner) {
+          return res.status(404).json({ message: 'Owner user not found' });
+        }
+        resolvedOwnerId = owner.id;
+      } else if (ownerEmail) {
+        const owner = await findOrCreateUserByEmail(ownerEmail, req.body?.ownerName);
+        resolvedOwnerId = owner.id;
+      }
+    }
+
+    if (!resolvedOwnerId && Object.keys(payload).length === 0) {
       return res.status(400).json({ message: 'No editable fields were provided' });
     }
 
     const store = await prisma.store.update({
       where: { id: storeId },
-      data: payload,
+      data: {
+        ...payload,
+        ...(resolvedOwnerId ? { ownerId: resolvedOwnerId } : {})
+      },
       select: storeSummarySelect
     });
+
+    if (resolvedOwnerId) {
+      await prisma.storeMember.upsert({
+        where: { storeId_userId: { storeId, userId: resolvedOwnerId } },
+        update: { role: 'OWNER' },
+        create: { storeId, userId: resolvedOwnerId, role: 'OWNER' }
+      });
+    }
 
     res.json({ store });
   })

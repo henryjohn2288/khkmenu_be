@@ -8,6 +8,12 @@ CREATE TYPE "UserRole" AS ENUM ('SUPER_ADMIN', 'ADMIN', 'SUPPORT');
 CREATE TYPE "StoreRole" AS ENUM ('OWNER', 'ADMIN', 'EDITOR');
 
 -- CreateEnum
+CREATE TYPE "StoreStatus" AS ENUM ('ACTIVE', 'SUSPENDED');
+
+-- CreateEnum
+CREATE TYPE "StorePlan" AS ENUM ('STARTER', 'PRO', 'ENTERPRISE');
+
+-- CreateEnum
 CREATE TYPE "InviteStatus" AS ENUM ('PENDING', 'ACCEPTED', 'EXPIRED', 'CANCELLED');
 
 -- CreateTable
@@ -47,6 +53,8 @@ CREATE TABLE "Store" (
     "slug" TEXT NOT NULL,
     "tagline" TEXT,
     "description" TEXT,
+    "status" "StoreStatus" NOT NULL DEFAULT 'ACTIVE',
+    "plan" "StorePlan" NOT NULL DEFAULT 'STARTER',
     "themeId" TEXT,
     "themeSettings" JSONB,
     "phone" TEXT,

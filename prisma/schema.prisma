@@ -41,6 +41,8 @@ model Store {
   slug           String        @unique
   tagline        String?
   description    String?
+  status         StoreStatus   @default(ACTIVE)
+  plan           StorePlan     @default(STARTER)
   themeId        String?
   themeSettings  Json?
   phone          String?
@@ -147,6 +149,17 @@ enum StoreRole {
   OWNER
   ADMIN
   EDITOR
+}
+
+enum StoreStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum StorePlan {
+  STARTER
+  PRO
+  ENTERPRISE
 }
 
 enum InviteStatus {
