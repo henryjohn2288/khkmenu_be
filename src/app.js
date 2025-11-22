@@ -8,6 +8,7 @@ const adminRouter = require('./routes/admin');
 const uploadsRouter = require('./routes/uploads');
 const inviteAcceptanceRouter = require('./routes/inviteAcceptance');
 const themesRouter = require('./routes/themes');
+const billingRouter = require('./routes/billing');
 
 const app = express();
 
@@ -35,6 +36,7 @@ app.use(express.json());
 app.use('/', publicRouter);
 app.use('/api', authRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/admin/billing', billingRouter);
 app.use('/api/uploads', uploadsRouter);
 app.use('/api', inviteAcceptanceRouter);
 app.use('/api/themes', themesRouter);

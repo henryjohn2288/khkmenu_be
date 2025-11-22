@@ -20,6 +20,7 @@ model User {
   ownedStores  Store[]       @relation("StoreOwner")
   sentInvites  StoreInvite[] @relation("InviteSender")
   memberships  StoreMember[]
+  subscriptionChangeLogs SubscriptionChangeLog[] @relation("UserSubscriptionChanges")
 }
 
 model Theme {
@@ -64,6 +65,8 @@ model Store {
   theme          Theme?        @relation(fields: [themeId], references: [id])
   invites        StoreInvite[]
   members        StoreMember[]
+  subscriptions  StoreSubscription[]
+  subscriptionChangeLogs SubscriptionChangeLog[] @relation("StoreSubscriptionChanges")
 }
 
 model Category {
@@ -145,6 +148,18 @@ enum UserRole {
   SUPPORT
 }
 
+enum BillingInterval {
+  MONTHLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  CANCELLED
+  PAST_DUE
+}
+
 enum StoreRole {
   OWNER
   ADMIN
@@ -167,4 +182,52 @@ enum InviteStatus {
   ACCEPTED
   EXPIRED
   CANCELLED
+}
+
+model Plan {
+  code         String          @id
+  name         String
+  priceCents   Int
+  currency     String          @default("USD")
+  interval     BillingInterval @default(MONTHLY)
+  trialDays    Int             @default(0)
+  features     Json?
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  subscriptions StoreSubscription[]
+}
+
+model StoreSubscription {
+  id               String              @id @default(cuid())
+  storeId          String
+  planCode         String
+  status           SubscriptionStatus  @default(ACTIVE)
+  trialEnd         DateTime?
+  currentPeriodEnd DateTime?
+  startedAt        DateTime            @default(now())
+  cancelledAt      DateTime?
+  notes            String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  store            Store               @relation(fields: [storeId], references: [id])
+  plan             Plan                @relation(fields: [planCode], references: [code])
+
+  @@index([storeId, status])
+}
+
+model SubscriptionChangeLog {
+  id          String   @id @default(cuid())
+  storeId     String
+  fromPlan    String?
+  toPlan      String?
+  changedById String?
+  reason      String?
+  effectiveAt DateTime @default(now())
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  store       Store    @relation("StoreSubscriptionChanges", fields: [storeId], references: [id])
+  changedBy   User?    @relation("UserSubscriptionChanges", fields: [changedById], references: [id])
+
+  @@index([storeId])
 }
