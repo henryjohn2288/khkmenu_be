@@ -283,6 +283,8 @@ async function deleteStore(req, res) {
     prisma.category.deleteMany({ where: { storeId } }),
     prisma.storeInvite.deleteMany({ where: { storeId } }),
     prisma.storeMember.deleteMany({ where: { storeId } }),
+    prisma.subscriptionChangeLog.deleteMany({ where: { storeId } }),
+    prisma.storeSubscription.deleteMany({ where: { storeId } }),
     prisma.store.delete({ where: { id: storeId } })
   ]);
 
