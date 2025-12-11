@@ -9,6 +9,7 @@ const uploadsRouter = require('./routes/uploads');
 const inviteAcceptanceRouter = require('./routes/inviteAcceptance');
 const themesRouter = require('./routes/themes');
 const billingRouter = require('./routes/billing');
+const { createRateLimiter } = require('./middlewares/rateLimit');
 
 const app = express();
 
@@ -18,6 +19,13 @@ const allowedOrigins = [
   'https://www.khkmenu.com',
   'https://digitalmenu-fe.vercel.app',
 ];
+
+// Protect login endpoint from brute force.
+const loginLimiter = createRateLimiter({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5,
+  message: 'Too many login attempts. Please try again in a minute.'
+});
 
 app.use(
   cors({
@@ -34,6 +42,7 @@ app.use(
 app.use(express.json());
 
 app.use('/', publicRouter);
+app.use('/api/auth/login', loginLimiter);
 app.use('/api', authRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/admin/billing', billingRouter);
