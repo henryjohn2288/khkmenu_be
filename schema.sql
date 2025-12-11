@@ -102,6 +102,7 @@ CREATE TABLE "Product" (
     "isFeatured" BOOLEAN NOT NULL DEFAULT false,
     "status" "ProductStatus" NOT NULL DEFAULT 'ACTIVE',
     "imageUrl" TEXT,
+    "imageUrls" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

@@ -19,6 +19,21 @@ const STORE_STATUSES = new Set(['ACTIVE', 'SUSPENDED']);
 const STORE_PLANS = new Set(['STARTER', 'PRO', 'ENTERPRISE']);
 const PRODUCT_STATUSES = new Set(['ACTIVE', 'HIDDEN', 'OUT_OF_STOCK']);
 const APP_BASE_URL = process.env.APP_BASE_URL || 'http://localhost:5173';
+const MAX_PRODUCT_IMAGES = 5;
+
+const normalizeImageUrls = (value) => {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw createHttpError(400, 'imageUrls must be an array of URLs');
+  }
+  const cleaned = value
+    .map((url) => (typeof url === 'string' ? url.trim() : ''))
+    .filter(Boolean);
+  if (cleaned.length > MAX_PRODUCT_IMAGES) {
+    throw createHttpError(400, `You can attach up to ${MAX_PRODUCT_IMAGES} images per product`);
+  }
+  return cleaned;
+};
 
 const storeSummarySelect = {
   id: true,
@@ -402,6 +417,7 @@ async function createProduct(req, res) {
     'sku',
     'status',
     'imageUrl',
+    'imageUrls',
     'categoryId',
     'sortOrder',
     'isFeatured'
@@ -436,6 +452,14 @@ async function createProduct(req, res) {
     }
   }
 
+  const normalizedImageUrls = normalizeImageUrls(payload.imageUrls);
+  if (normalizedImageUrls !== undefined) {
+    payload.imageUrls = normalizedImageUrls;
+  }
+  if (!payload.imageUrl && normalizedImageUrls?.length) {
+    payload.imageUrl = normalizedImageUrls[0];
+  }
+
   await ensureCategoryBelongsToStore(payload.categoryId, storeId);
 
   const product = await prisma.product.create({ data: { ...payload, storeId } });
@@ -455,6 +479,7 @@ async function updateProduct(req, res) {
     'sku',
     'status',
     'imageUrl',
+    'imageUrls',
     'categoryId',
     'sortOrder',
     'isFeatured'
@@ -481,6 +506,14 @@ async function updateProduct(req, res) {
     if (!PRODUCT_STATUSES.has(payload.status)) {
       return res.status(400).json({ message: 'Invalid product status' });
     }
+  }
+
+  const normalizedImageUrls = normalizeImageUrls(payload.imageUrls);
+  if (normalizedImageUrls !== undefined) {
+    payload.imageUrls = normalizedImageUrls;
+  }
+  if (!payload.imageUrl && normalizedImageUrls?.length) {
+    payload.imageUrl = normalizedImageUrls[0];
   }
 
   await ensureCategoryBelongsToStore(payload.categoryId, product.storeId);
