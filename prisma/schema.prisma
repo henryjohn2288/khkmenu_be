@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -15,6 +14,7 @@ model User {
   phone        String?
   avatarUrl    String?
   role         UserRole      @default(ADMIN)
+  platformAdmin Boolean      @default(false)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   ownedStores  Store[]       @relation("StoreOwner")
@@ -146,7 +146,6 @@ enum ProductStatus {
 enum UserRole {
   SUPER_ADMIN
   ADMIN
-  SUPPORT
 }
 
 enum BillingInterval {
@@ -163,7 +162,6 @@ enum SubscriptionStatus {
 
 enum StoreRole {
   OWNER
-  ADMIN
   EDITOR
 }
 

@@ -21,6 +21,33 @@ const PRODUCT_STATUSES = new Set(['ACTIVE', 'HIDDEN', 'OUT_OF_STOCK']);
 const APP_BASE_URL = process.env.APP_BASE_URL || 'http://localhost:5173';
 const MAX_PRODUCT_IMAGES = 5;
 
+async function ensureOwnerAvailable(userId, excludeStoreId) {
+  const existingStoreOwner = await prisma.store.findFirst({
+    where: {
+      ownerId: userId,
+      ...(excludeStoreId ? { id: { not: excludeStoreId } } : {})
+    },
+    select: { id: true }
+  });
+
+  if (existingStoreOwner) {
+    throw createHttpError(409, 'An owner can only be assigned to one store. Choose a different owner email.');
+  }
+
+  const existingOwnerMembership = await prisma.storeMember.findFirst({
+    where: {
+      userId,
+      role: 'OWNER',
+      ...(excludeStoreId ? { storeId: { not: excludeStoreId } } : {})
+    },
+    select: { id: true }
+  });
+
+  if (existingOwnerMembership) {
+    throw createHttpError(409, 'An owner can only be assigned to one store. Choose a different owner email.');
+  }
+}
+
 const normalizeImageUrls = (value) => {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) {
@@ -93,7 +120,7 @@ const inviteSelect = {
 // Stores --------------------------------------------------------------------
 async function listStores(req, res) {
   let stores;
-  if (req.userRole === 'SUPER_ADMIN') {
+  if (req.userRole === 'SUPER_ADMIN' || req.userRole === 'ADMIN') {
     const allStores = await prisma.store.findMany({ select: storeSummarySelect, orderBy: { createdAt: 'desc' } });
     stores = allStores.map((store) => ({ ...store, memberRole: 'OWNER' }));
   } else {
@@ -110,7 +137,7 @@ async function listStores(req, res) {
 }
 
 async function createStore(req, res) {
-  if (req.userRole !== 'SUPER_ADMIN') {
+  if (req.userRole !== 'SUPER_ADMIN' && req.userRole !== 'ADMIN') {
     return res.status(403).json({ message: 'Only platform administrators can create stores' });
   }
 
@@ -157,7 +184,7 @@ async function createStore(req, res) {
   }
 
   let ownerUserId = req.userId;
-  if (req.userRole === 'SUPER_ADMIN') {
+  if (req.userRole === 'SUPER_ADMIN' || req.userRole === 'ADMIN') {
     const incomingOwnerId = req.body?.ownerId ? String(req.body.ownerId).trim() : null;
     const incomingOwnerEmail = req.body?.ownerEmail ? String(req.body.ownerEmail).trim().toLowerCase() : null;
     if (incomingOwnerId) {
@@ -170,6 +197,10 @@ async function createStore(req, res) {
       const owner = await findOrCreateUserByEmail(incomingOwnerEmail, req.body?.ownerName);
       ownerUserId = owner.id;
     }
+  }
+
+  if (ownerUserId) {
+    await ensureOwnerAvailable(ownerUserId);
   }
 
   const store = await prisma.store.create({
@@ -193,7 +224,7 @@ async function createStore(req, res) {
 
 async function updateStore(req, res) {
   const { storeId } = req.params;
-  await assertStorePermission(req.user, storeId, 'ADMIN');
+  await assertStorePermission(req.user, storeId, 'OWNER');
 
   const payload = pick(req.body, [
     'name',
@@ -217,7 +248,7 @@ async function updateStore(req, res) {
   ]);
 
   if (payload.status) {
-    if (req.userRole !== 'SUPER_ADMIN') {
+    if (req.userRole !== 'SUPER_ADMIN' && req.userRole !== 'ADMIN') {
       return res.status(403).json({ message: 'Only platform administrators can change store status' });
     }
     const normalizedStatus = String(payload.status).toUpperCase();
@@ -228,7 +259,7 @@ async function updateStore(req, res) {
   }
 
   if (payload.plan) {
-    if (req.userRole !== 'SUPER_ADMIN') {
+    if (req.userRole !== 'SUPER_ADMIN' && req.userRole !== 'ADMIN') {
       return res.status(403).json({ message: 'Only platform administrators can change store plans' });
     }
     const normalizedPlan = String(payload.plan).toUpperCase();
@@ -242,8 +273,17 @@ async function updateStore(req, res) {
   const ownerEmail = req.body?.ownerEmail ? String(req.body.ownerEmail).trim().toLowerCase() : null;
   const ownerIdInput = req.body?.ownerId ? String(req.body.ownerId).trim() : null;
 
+  // Restrict identity fields to platform admins only
+  if (req.userRole !== 'SUPER_ADMIN' && req.userRole !== 'ADMIN') {
+    if (payload.name || payload.slug) {
+      return res.status(403).json({ message: 'Only platform administrators can change store name or slug' });
+    }
+    delete payload.name;
+    delete payload.slug;
+  }
+
   if (ownerEmail || ownerIdInput) {
-    if (req.userRole !== 'SUPER_ADMIN') {
+    if (req.userRole !== 'SUPER_ADMIN' && req.userRole !== 'ADMIN') {
       return res.status(403).json({ message: 'Only platform administrators can reassign owners' });
     }
     if (ownerIdInput) {
@@ -260,6 +300,10 @@ async function updateStore(req, res) {
 
   if (!resolvedOwnerId && Object.keys(payload).length === 0) {
     return res.status(400).json({ message: 'No editable fields were provided' });
+  }
+
+  if (resolvedOwnerId) {
+    await ensureOwnerAvailable(resolvedOwnerId, storeId);
   }
 
   const store = await prisma.store.update({
@@ -308,7 +352,7 @@ async function deleteStore(req, res) {
 
 // Customers ---------------------------------------------------------------
 async function listCustomers(req, res) {
-  if (req.userRole !== 'SUPER_ADMIN') {
+  if (req.userRole !== 'SUPER_ADMIN' && req.userRole !== 'ADMIN') {
     return res.status(403).json({ message: 'Only platform administrators can view customers' });
   }
 
@@ -398,7 +442,7 @@ async function updateCategory(req, res) {
 
 async function deleteCategory(req, res) {
   const { categoryId } = req.params;
-  await ensureCategoryOwnership(categoryId, req.user, 'ADMIN');
+  await ensureCategoryOwnership(categoryId, req.user, 'OWNER');
   await prisma.category.delete({ where: { id: categoryId } });
   res.status(204).end();
 }
@@ -524,7 +568,7 @@ async function updateProduct(req, res) {
 
 async function deleteProduct(req, res) {
   const { productId } = req.params;
-  await ensureProductOwnership(productId, req.user, 'ADMIN');
+  await ensureProductOwnership(productId, req.user, 'OWNER');
   await prisma.product.delete({ where: { id: productId } });
   res.status(204).end();
 }
@@ -532,7 +576,7 @@ async function deleteProduct(req, res) {
 // Members ---------------------------------------------------------------
 async function listMembers(req, res) {
   const { storeId } = req.params;
-  await assertStorePermission(req.user, storeId, 'ADMIN');
+  await assertStorePermission(req.user, storeId, 'OWNER');
   const members = await prisma.storeMember.findMany({
     where: { storeId },
     select: memberSelect,
@@ -543,7 +587,7 @@ async function listMembers(req, res) {
 
 async function addMember(req, res) {
   const { storeId } = req.params;
-  const { membership } = await assertStorePermission(req.user, storeId, 'ADMIN');
+  const { membership } = await assertStorePermission(req.user, storeId, 'OWNER');
   const actorRole = getActorStoreRole(req.user, membership);
 
   const { email, name, role } = req.body || {};
@@ -554,7 +598,12 @@ async function addMember(req, res) {
   const normalizedRole = role.toUpperCase();
   assertRoleAssignable(actorRole, normalizedRole);
 
-  const user = await findOrCreateUserByEmail(String(email).trim().toLowerCase(), name);
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const user = await findOrCreateUserByEmail(normalizedEmail, name);
+
+  if (user.role === 'SUPER_ADMIN') {
+    return res.status(409).json({ message: 'This email cannot be added to the store' });
+  }
 
   const existing = await prisma.storeMember.findUnique({
     where: { storeId_userId: { storeId, userId: user.id } }
@@ -579,7 +628,7 @@ async function updateMember(req, res) {
     throw createHttpError(404, 'Member not found');
   }
 
-  const { membership } = await assertStorePermission(req.user, member.storeId, 'ADMIN');
+  const { membership } = await assertStorePermission(req.user, member.storeId, 'OWNER');
   const actorRole = getActorStoreRole(req.user, membership);
   const { role } = req.body || {};
   if (!role) {
@@ -608,7 +657,7 @@ async function removeMember(req, res) {
     throw createHttpError(404, 'Member not found');
   }
 
-  const { membership } = await assertStorePermission(req.user, member.storeId, 'ADMIN');
+  const { membership } = await assertStorePermission(req.user, member.storeId, 'OWNER');
   const actorRole = getActorStoreRole(req.user, membership);
   assertRoleManagement(actorRole, member.role, req.userId, member.userId);
   if (member.role === 'OWNER') {
@@ -622,7 +671,7 @@ async function removeMember(req, res) {
 // Invites ---------------------------------------------------------------
 async function listInvites(req, res) {
   const { storeId } = req.params;
-  await assertStorePermission(req.user, storeId, 'ADMIN');
+  await assertStorePermission(req.user, storeId, 'OWNER');
   const invites = await prisma.storeInvite.findMany({
     where: { storeId, status: 'PENDING' },
     select: inviteSelect,
@@ -637,7 +686,7 @@ async function listInvites(req, res) {
 
 async function createInvite(req, res) {
   const { storeId } = req.params;
-  const { membership } = await assertStorePermission(req.user, storeId, 'ADMIN');
+  const { membership } = await assertStorePermission(req.user, storeId, 'OWNER');
   const actorRole = getActorStoreRole(req.user, membership);
   const { email, name, role } = req.body || {};
   if (!email || !role) {
@@ -647,6 +696,11 @@ async function createInvite(req, res) {
   assertRoleAssignable(actorRole, normalizedRole);
 
   const normalizedEmail = String(email).trim().toLowerCase();
+  const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  if (existingUser && existingUser.role === 'SUPER_ADMIN') {
+    return res.status(409).json({ message: 'This email cannot be invited to the store' });
+  }
+
   const existingInvite = await prisma.storeInvite.findFirst({
     where: { storeId, email: normalizedEmail, status: 'PENDING' }
   });
@@ -687,7 +741,7 @@ async function cancelInvite(req, res) {
   if (!invite) {
     throw createHttpError(404, 'Invite not found');
   }
-  await assertStorePermission(req.user, invite.storeId, 'ADMIN');
+  await assertStorePermission(req.user, invite.storeId, 'OWNER');
   await prisma.storeInvite.update({ where: { id: inviteId }, data: { status: 'CANCELLED' } });
   res.status(204).end();
 }
@@ -698,7 +752,7 @@ async function resendInvite(req, res) {
   if (!invite) {
     throw createHttpError(404, 'Invite not found');
   }
-  await assertStorePermission(req.user, invite.storeId, 'ADMIN');
+  await assertStorePermission(req.user, invite.storeId, 'OWNER');
   if (invite.status !== 'PENDING') {
     throw createHttpError(400, 'Only pending invites can be resent');
   }

@@ -3,7 +3,7 @@ const { createHttpError } = require('../utils/errors');
 
 const requireSuperAdmin = (userRole) => {
   if (userRole !== 'SUPER_ADMIN') {
-    throw createHttpError(403, 'Only platform administrators can manage billing and plans');
+    throw createHttpError(403, 'Only super administrators can manage billing and plans');
   }
 };
 

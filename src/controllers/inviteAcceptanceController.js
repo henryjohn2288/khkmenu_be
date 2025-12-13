@@ -41,6 +41,10 @@ async function acceptInvite(req, res) {
   const { name, password } = req.body || {};
   let user = await prisma.user.findUnique({ where: { email: invite.email } });
 
+  if (user && user.role === 'SUPER_ADMIN') {
+    throw createHttpError(409, 'This invite cannot be accepted with this email');
+  }
+
   // Allow overwriting password if user was pre-created with a temp hash.
   if (user) {
     if (password) {

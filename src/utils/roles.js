@@ -1,7 +1,6 @@
 const STORE_ROLE_WEIGHT = {
   EDITOR: 1,
-  ADMIN: 2,
-  OWNER: 3
+  OWNER: 2
 };
 
 const STORE_ROLES = Object.keys(STORE_ROLE_WEIGHT);

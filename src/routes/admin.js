@@ -2,10 +2,17 @@ const { Router } = require('express');
 const asyncHandler = require('../middlewares/asyncHandler');
 const requireAuth = require('../middlewares/requireAuth');
 const storeController = require('../controllers/storeController');
+const adminUserController = require('../controllers/adminUserController');
 
 const router = Router();
 
 router.use(requireAuth);
+
+// Platform admins
+router.get('/platform-admins', asyncHandler(adminUserController.listPlatformAdmins));
+router.post('/platform-admins', asyncHandler(adminUserController.addPlatformAdmin));
+router.patch('/platform-admins/:userId', asyncHandler(adminUserController.updatePlatformAdminRole));
+router.delete('/platform-admins/:userId', asyncHandler(adminUserController.removePlatformAdmin));
 
 // Stores & customers
 router.get('/stores', asyncHandler(storeController.listStores));
