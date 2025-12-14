@@ -114,4 +114,15 @@ router.get(
   })
 );
 
+router.get(
+  '/api/public/plans',
+  asyncHandler(async (_req, res) => {
+    const plans = await prisma.plan.findMany({
+      where: { isActive: true },
+      orderBy: { priceCents: 'asc' }
+    });
+    res.json({ plans });
+  })
+);
+
 module.exports = router;

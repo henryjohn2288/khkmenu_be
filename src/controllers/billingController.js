@@ -37,14 +37,16 @@ async function createPlan(req, res) {
   requireSuperAdmin(req.userRole);
   const { code, name, priceCents, currency = 'USD', interval = 'MONTHLY', trialDays = 0, features, isActive = true } =
     req.body || {};
-  if (!code || !name || priceCents === undefined) {
+  const safeCode = typeof code === 'string' ? code.trim() : '';
+  const safeName = typeof name === 'string' ? name.trim() : '';
+  if (!safeCode || !safeName || priceCents === undefined) {
     return res.status(400).json({ message: 'code, name, and priceCents are required' });
   }
   const plan = await prisma.plan.create({
     data: {
-      code,
-      name,
-      priceCents: Number(priceCents),
+      code: safeCode,
+      name: safeName,
+      priceCents: Number(priceCents) || 0,
       currency,
       interval,
       trialDays: Number(trialDays) || 0,
@@ -65,10 +67,12 @@ async function updatePlan(req, res) {
     throw createHttpError(404, 'Plan not found');
   }
 
+  const safeName = typeof name === 'string' ? name.trim() : name;
+
   const plan = await prisma.plan.update({
     where: { code: planCode },
     data: {
-      ...(name !== undefined ? { name } : {}),
+      ...(safeName !== undefined ? { name: safeName } : {}),
       ...(priceCents !== undefined ? { priceCents: Number(priceCents) } : {}),
       ...(currency !== undefined ? { currency } : {}),
       ...(interval !== undefined ? { interval } : {}),
@@ -78,6 +82,36 @@ async function updatePlan(req, res) {
     }
   });
   res.json({ plan });
+}
+
+async function deletePlan(req, res) {
+  requireSuperAdmin(req.userRole);
+  let { planCode } = req.params;
+
+  // Gracefully handle bad data where code is missing/empty
+  if (!planCode || planCode === '__empty__') {
+    const emptyPlan = await prisma.plan.findFirst({ where: { code: '' } });
+    if (!emptyPlan) {
+      throw createHttpError(404, 'Plan not found');
+    }
+    planCode = emptyPlan.code;
+  }
+
+  const existing = await prisma.plan.findUnique({ where: { code: planCode } });
+  if (!existing) {
+    throw createHttpError(404, 'Plan not found');
+  }
+
+  // Only block deletion if a plan is currently active/trialing/past due; allow deletion when only cancelled history exists.
+  const activeUsage = await prisma.storeSubscription.count({
+    where: { planCode, status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] } }
+  });
+  if (activeUsage > 0) {
+    throw createHttpError(409, 'Plan is in use by an active subscription and cannot be deleted');
+  }
+
+  await prisma.plan.delete({ where: { code: planCode } });
+  res.status(204).end();
 }
 
 // Subscriptions --------------------------------------------------------------
@@ -211,6 +245,7 @@ module.exports = {
   listPlans,
   createPlan,
   updatePlan,
+  deletePlan,
   getStoreSubscription,
   setStoreSubscription,
   cancelStoreSubscription,

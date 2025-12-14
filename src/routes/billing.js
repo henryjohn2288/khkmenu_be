@@ -11,6 +11,7 @@ router.use(requireAuth);
 router.get('/plans', asyncHandler(billingController.listPlans));
 router.post('/plans', asyncHandler(billingController.createPlan));
 router.patch('/plans/:planCode', asyncHandler(billingController.updatePlan));
+router.delete('/plans/:planCode', asyncHandler(billingController.deletePlan));
 
 // Store subscriptions
 router.get('/stores/:storeId/subscription', asyncHandler(billingController.getStoreSubscription));

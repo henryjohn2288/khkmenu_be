@@ -71,6 +71,7 @@ async function me(req, res) {
       phone: true,
       avatarUrl: true,
       role: true,
+      platformAdmin: true,
       memberships: {
         select: {
           id: true,

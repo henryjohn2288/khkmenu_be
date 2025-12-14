@@ -21,6 +21,33 @@ const PRODUCT_STATUSES = new Set(['ACTIVE', 'HIDDEN', 'OUT_OF_STOCK']);
 const APP_BASE_URL = process.env.APP_BASE_URL || 'http://localhost:5173';
 const MAX_PRODUCT_IMAGES = 5;
 
+async function hydrateOwnerFallback(stores) {
+  const missingOwnerIds = stores.filter((store) => !store.owner?.email).map((store) => store.id);
+  if (!missingOwnerIds.length) return stores;
+
+  const ownerMembers = await prisma.storeMember.findMany({
+    where: { storeId: { in: missingOwnerIds }, role: 'OWNER' },
+    select: {
+      storeId: true,
+      user: {
+        select: { id: true, name: true, email: true }
+      }
+    },
+    orderBy: { createdAt: 'asc' }
+  });
+
+  const fallbackByStore = ownerMembers.reduce((map, member) => {
+    if (!map[member.storeId] && member.user) {
+      map[member.storeId] = member.user;
+    }
+    return map;
+  }, {});
+
+  return stores.map((store) =>
+    store.owner?.email || !fallbackByStore[store.id] ? store : { ...store, owner: fallbackByStore[store.id] }
+  );
+}
+
 async function ensureOwnerAvailable(userId, excludeStoreId) {
   const existingStoreOwner = await prisma.store.findFirst({
     where: {
@@ -122,7 +149,8 @@ async function listStores(req, res) {
   let stores;
   if (req.userRole === 'SUPER_ADMIN' || req.userRole === 'ADMIN') {
     const allStores = await prisma.store.findMany({ select: storeSummarySelect, orderBy: { createdAt: 'desc' } });
-    stores = allStores.map((store) => ({ ...store, memberRole: 'OWNER' }));
+    const hydrated = await hydrateOwnerFallback(allStores);
+    stores = hydrated.map((store) => ({ ...store, memberRole: 'OWNER' }));
   } else {
     const memberships = await prisma.storeMember.findMany({
       where: { userId: req.userId },
@@ -131,7 +159,13 @@ async function listStores(req, res) {
         store: { select: storeSummarySelect }
       }
     });
-    stores = memberships.map(({ store, role }) => ({ ...store, memberRole: role }));
+    const storesOnly = memberships.map(({ store }) => store);
+    const hydrated = await hydrateOwnerFallback(storesOnly);
+    const byId = hydrated.reduce((map, store) => {
+      map[store.id] = store;
+      return map;
+    }, {});
+    stores = memberships.map(({ store, role }) => ({ ...byId[store.id], memberRole: role }));
   }
   res.json({ stores });
 }
@@ -356,6 +390,7 @@ async function listCustomers(req, res) {
     return res.status(403).json({ message: 'Only platform administrators can view customers' });
   }
 
+  // Base owners (store.ownerId)
   const owners = await prisma.user.findMany({
     where: {
       ownedStores: {
@@ -369,29 +404,62 @@ async function listCustomers(req, res) {
       phone: true,
       createdAt: true,
       ownedStores: {
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          status: true,
-          plan: true,
-          createdAt: true,
-          updatedAt: true
-        },
+        select: storeSummarySelect,
         orderBy: { createdAt: 'desc' }
       }
     },
     orderBy: { createdAt: 'desc' }
   });
 
-  const customers = owners.map((owner) => {
-    const stores = owner.ownedStores;
-    const status = stores.length && stores.every((store) => store.status === 'SUSPENDED') ? 'SUSPENDED' : 'ACTIVE';
-    return {
+  const customerMap = new Map();
+
+  for (const owner of owners) {
+    customerMap.set(owner.id, {
       id: owner.id,
       name: owner.name,
       email: owner.email,
       phone: owner.phone,
+      stores: [...owner.ownedStores]
+    });
+  }
+
+  // Include stores where the user is an OWNER member (even if ownerId is null)
+  const ownerMembers = await prisma.storeMember.findMany({
+    where: { role: 'OWNER' },
+    select: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true
+        }
+      },
+      store: { select: storeSummarySelect }
+    },
+    orderBy: { createdAt: 'asc' }
+  });
+
+  for (const member of ownerMembers) {
+    if (!member.user || !member.store) continue;
+    const existing = customerMap.get(member.user.id) || {
+      id: member.user.id,
+      name: member.user.name,
+      email: member.user.email,
+      phone: member.user.phone,
+      stores: []
+    };
+    if (!existing.stores.some((s) => s.id === member.store.id)) {
+      existing.stores.push(member.store);
+    }
+    customerMap.set(member.user.id, existing);
+  }
+
+  const customers = Array.from(customerMap.values()).map((customer) => {
+    const stores = customer.stores.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    const status = stores.length && stores.every((store) => store.status === 'SUSPENDED') ? 'SUSPENDED' : 'ACTIVE';
+    return {
+      ...customer,
       status,
       primaryPlan: stores[0]?.plan || 'STARTER',
       stores
@@ -641,6 +709,10 @@ async function updateMember(req, res) {
     await ensureAtLeastOneOwner(member.storeId, member.userId);
   }
 
+  if (normalizedRole === 'OWNER') {
+    await ensureOwnerAvailable(member.userId, member.storeId);
+  }
+
   const updated = await prisma.storeMember.update({
     where: { id: memberId },
     data: { role: normalizedRole },
@@ -696,9 +768,17 @@ async function createInvite(req, res) {
   assertRoleAssignable(actorRole, normalizedRole);
 
   const normalizedEmail = String(email).trim().toLowerCase();
-  const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-  if (existingUser && existingUser.role === 'SUPER_ADMIN') {
-    return res.status(409).json({ message: 'This email cannot be invited to the store' });
+  const existingUser = await prisma.user.findUnique({
+    where: { email: normalizedEmail },
+    select: { id: true, role: true }
+  });
+  if (existingUser) {
+    if (existingUser.role === 'SUPER_ADMIN') {
+      return res.status(409).json({ message: 'This email cannot be invited to the store' });
+    }
+    if (normalizedRole === 'OWNER') {
+      await ensureOwnerAvailable(existingUser.id, storeId);
+    }
   }
 
   const existingInvite = await prisma.storeInvite.findFirst({

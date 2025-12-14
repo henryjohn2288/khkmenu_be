@@ -1,6 +1,15 @@
+const jwt = require('jsonwebtoken');
 const prisma = require('../lib/prisma');
 const { createHttpError } = require('../utils/errors');
 const { findOrCreateUserByEmail, ensureAtLeastOneOwner } = require('../services/storeAccess');
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET is not set. Set a strong secret in the environment.');
+}
+
+const APP_BASE_URL = process.env.APP_BASE_URL || 'http://localhost:5173';
+const PLATFORM_INVITE_TTL = '7d';
 
 const sanitizeUser = (user) => {
   if (!user) return null;
@@ -68,7 +77,20 @@ async function addPlatformAdmin(req, res) {
           data: { role: 'ADMIN', platformAdmin: true, ...(name ? { name } : {}) }
         });
 
-  res.status(201).json({ admin: sanitizeUser(updated) });
+  const setupToken = jwt.sign(
+    {
+      kind: 'PLATFORM_ADMIN_SETUP',
+      userId: updated.id,
+      email: updated.email,
+      invitedById: req.userId,
+      name: updated.name || name || null
+    },
+    JWT_SECRET,
+    { expiresIn: PLATFORM_INVITE_TTL }
+  );
+  const inviteUrl = `${APP_BASE_URL}/admin-setup/${setupToken}`;
+
+  res.status(201).json({ admin: sanitizeUser(updated), inviteUrl });
 }
 
 async function updatePlatformAdminRole(req, res) {
