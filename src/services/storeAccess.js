@@ -16,7 +16,7 @@ async function assertStorePermission(user, storeId, requiredRole = 'EDITOR') {
     throw createHttpError(404, 'Store not found');
   }
 
-  if (user.role === 'SUPER_ADMIN') {
+  if (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN') {
     return { store };
   }
 

@@ -8,7 +8,8 @@ const STORE_ROLES = Object.keys(STORE_ROLE_WEIGHT);
 const hasStorePermission = (currentRole, requiredRole) =>
   (STORE_ROLE_WEIGHT[currentRole] || 0) >= (STORE_ROLE_WEIGHT[requiredRole] || 0);
 
-const getActorStoreRole = (user, membership) => (user.role === 'SUPER_ADMIN' ? 'OWNER' : membership?.role || 'EDITOR');
+const getActorStoreRole = (user, membership) =>
+  user.role === 'SUPER_ADMIN' || user.role === 'ADMIN' ? 'OWNER' : membership?.role || 'EDITOR';
 
 const assertRoleAssignable = (actorRole, targetRole) => {
   if (!STORE_ROLES.includes(targetRole)) {
